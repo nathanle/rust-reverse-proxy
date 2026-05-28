@@ -15,8 +15,6 @@ use std::sync::Arc;
 use hyper_rustls::HttpsConnector;
 
 
-//type Client = hyper_util::client::legacy::Client<HttpConnector, Body>;
-//
 type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
 
 
@@ -24,8 +22,6 @@ type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
 async fn main() {
 
     let config = axum_reverse_proxy::create_dangerous_rustls_config(); 
-
-    //let config = Arc::new(config);
 
     /*
     let server_name = ServerName::try_from("192.168.0.1")
@@ -49,7 +45,6 @@ async fn main() {
     
     let shared_client = Arc::new(client);
 
-    // 4. Set up the Axum router passing the client via state
     let app: Router = Router::new()
         .route("/{*path}", get(proxy_handler))
         .with_state(shared_client);
@@ -67,10 +62,6 @@ async fn main() {
     */
 
     tokio::spawn(server());
-
-    //let app = Router::new().route("/", get(handler)).with_state(client);
-    //let app: Router = proxy.into();
-
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
         .await
         .unwrap();
@@ -93,11 +84,8 @@ async fn proxy_handler(
     //Path(path): Path<String>,
     mut req: Request<Body>,
     ) -> Result<Response<hyper::body::Incoming>, StatusCode> {
-    // Define your target upsotream URI destination
-    //let query = req.uri().query().map(|q| format!("?{}", q)).unwrap_or_default();
     let upstream_uri = "https://192.168.0.1";
     
-    // Construct the new target URI from the incoming path and query
     let path = req.uri().path();
     let path_and_query = req
         .uri()
@@ -106,18 +94,13 @@ async fn proxy_handler(
         .unwrap_or(path);
         
     let new_uri = format!("{}{}", upstream_uri, path_and_query);
-
-    // Rewrite the request URI and host header for the upstream server
     *req.uri_mut() = new_uri.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-     
     req.headers_mut().insert(
         hyper::http::header::HOST,
         "192.168.0.1".parse().unwrap(),
     );
     
     println!("{:?}", &req);
-   
-    // Forward the request using our custom Rustls-backed client
     let response = client.request(req).await.map_err(|err| {
         eprintln!("Upstream proxy error: {:?}", err);
         StatusCode::BAD_GATEWAY
