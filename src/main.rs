@@ -13,6 +13,9 @@ use hyper_util::{rt::TokioExecutor};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
 use std::sync::Arc;
 use hyper_rustls::HttpsConnector;
+use tower_http::trace::{TraceLayer, DefaultMakeSpan, DefaultOnResponse};
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
 
 
 type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
@@ -20,15 +23,13 @@ type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
 
 #[tokio::main]
 async fn main() {
+    let subscriber = FmtSubscriber::builder()
+        .with_max_level(Level::INFO)
+        .finish();
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("setting default subscriber failed");
 
     let config = axum_reverse_proxy::create_dangerous_rustls_config(); 
-
-    /*
-    let server_name = ServerName::try_from("192.168.0.1")
-    .expect("invalid server name");
-    let mut client = ClientConnection::new(config, server_name)
-    .expect("failed to create client connection");
-    */
 
     let mut http_connector = HttpConnector::new();
     http_connector.enforce_http(false);
@@ -43,23 +44,23 @@ async fn main() {
     let client: ProxyClient = Client::builder(hyper_util::rt::TokioExecutor::new())
         .build(https_connector);
     
-    let shared_client = Arc::new(client);
+    let shared_client = Arc::new(client.clone());
 
-    let app: Router = Router::new()
-        .route("/{*path}", get(proxy_handler))
-        .with_state(shared_client);
-
-
-    //let client = Client::builder(TokioExecutor::new())
-    //.pool_idle_timeout(std::time::Duration::from_secs(120))
-    //.build(HttpConnector::new());
-    /*
     let proxy = ReverseProxy::new_with_client(
         "/",
-        "http://192.168.0.5",
-        client
+        "https://192.168.0.1",
+        client.clone()
     );
-    */
+
+    let app: Router = Router::new()
+        .merge(proxy)
+        //.route("/{*path}", get(proxy))
+        .with_state(client)
+        .layer(
+            TraceLayer::new_for_http()
+            .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+            .on_response(DefaultOnResponse::new().level(Level::INFO)),
+            );
 
     tokio::spawn(server());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:4000")
