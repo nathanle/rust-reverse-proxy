@@ -11,18 +11,25 @@ use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use hyper::StatusCode;
 use hyper_util::{rt::TokioExecutor};
 use rustls::{ClientConfig, ClientConnection, RootCertStore, pki_types::ServerName};
+use rustls::client::danger;
 use std::sync::Arc;
 use hyper_rustls::HttpsConnector;
 use tower_http::trace::{TraceLayer, DefaultMakeSpan, DefaultOnResponse};
 use tracing::Level;
 use tracing_subscriber::FmtSubscriber;
+use rustls::client::danger::ServerCertVerifier;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
+struct NoCertificateVerification;
 
 type ProxyClient = Client<HttpsConnector<HttpConnector>, Body>;
 
-
 #[tokio::main]
 async fn main() {
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(Level::INFO)
         .finish();
@@ -36,13 +43,21 @@ async fn main() {
 
     let https_connector = hyper_rustls::HttpsConnectorBuilder::new()
         .with_tls_config(config)
-        .https_or_http()
+        //.https_or_http()
+        .https_only()
         .enable_http1() // Enable HTTP/1.1 fallback
         //.enable_http2() // Enable HTTP/2 for upstream connections
+        //.build();
         .wrap_connector(http_connector);
 
-    let client: ProxyClient = Client::builder(hyper_util::rt::TokioExecutor::new())
-        .build(https_connector);
+    //let client: ProxyClient = Client::builder(hyper_util::rt::TokioExecutor::new())
+    //    .build(https_connector);
+
+    let client: Client<
+        hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>,
+        Body,
+    > = Client::builder(TokioExecutor::new()).build(https_connector);
+
     
     let shared_client = Arc::new(client.clone());
 
